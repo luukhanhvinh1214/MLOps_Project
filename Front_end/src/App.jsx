@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import './App.css';
+import logoLkv from './assets/logo-lkv.png';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://192.168.28.38:8085';
+const API_BASE = import.meta.env.VITE_API_BASE || (
+  typeof window !== 'undefined' && window.location.hostname
+    ? `http://${window.location.hostname}:8085`
+    : 'http://localhost:8085'
+);
 
 function App() {
   const [pdfName, setPdfName] = useState('');
@@ -12,11 +17,27 @@ function App() {
   const [savingHistory, setSavingHistory] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [theme, setTheme] = useState(() => {
+    return localStorage.getItem('vklv_theme') || 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (theme === 'light') {
+      document.documentElement.classList.add('theme-light');
+    } else {
+      document.documentElement.classList.remove('theme-light');
+    }
+    localStorage.setItem('vklv_theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  };
 
   // Modals & Notifications
   const [toast, setToast] = useState(null); // { type: 'success' | 'error' | 'info', message: string }
-  const [nameModalOpen, setNameModalOpen] = useState(false);
-  const [newChatTitle, setNewChatTitle] = useState('');
+  const [activeSessionName, setActiveSessionName] = useState('');
   const [sessionToDelete, setSessionToDelete] = useState(null);
 
   const [sessionId, setSessionId] = useState(() => {
@@ -112,6 +133,7 @@ function App() {
         setSessionId(newSid);
         localStorage.setItem('chat_session_id', newSid);
         setSelectedSession(null);
+        setActiveSessionName('');
         await fetchSessions();
         showToast('success', `Tệp PDF [${file.name}] đã được phân tích và sẵn sàng truy vấn.`);
       } else {
@@ -160,6 +182,13 @@ function App() {
     const updatedHistory = [...chatHistory, { role: 'user', content: cleanQuestion }];
     setChatHistory(updatedHistory);
 
+    // Tự động lưu tên cuộc trò chuyện là 20 ký tự đầu tiên của câu hỏi ([Bạn]) đầu tiên
+    let sessionTitle = activeSessionName;
+    if (!sessionTitle) {
+      sessionTitle = cleanQuestion.length > 20 ? cleanQuestion.slice(0, 20) + '...' : cleanQuestion;
+      setActiveSessionName(sessionTitle);
+    }
+
     try {
       const formData = new FormData();
       formData.append('question', cleanQuestion);
@@ -173,12 +202,16 @@ function App() {
       if (res.ok) {
         const finalHistory = [...updatedHistory, { role: 'assistant', content: data.answer }];
         setChatHistory(finalHistory);
-        saveHistory(sessionId, finalHistory);
+        saveHistory(sessionId, finalHistory, sessionTitle, () => {
+          fetchSessions();
+        });
       } else {
         const errorMsg = data.error || 'Máy chủ không thể tạo câu trả lời.';
         const finalHistory = [...updatedHistory, { role: 'assistant', content: `[Thông báo lỗi]: ${errorMsg}` }];
         setChatHistory(finalHistory);
-        saveHistory(sessionId, finalHistory);
+        saveHistory(sessionId, finalHistory, sessionTitle, () => {
+          fetchSessions();
+        });
         showToast('error', errorMsg);
       }
     } catch (err) {
@@ -186,40 +219,27 @@ function App() {
       const networkErrorMsg = 'Mất kết nối với máy chủ backend. Vui lòng kiểm tra lại dịch vụ.';
       const finalHistory = [...updatedHistory, { role: 'assistant', content: `[Lỗi mạng]: ${networkErrorMsg}` }];
       setChatHistory(finalHistory);
-      saveHistory(sessionId, finalHistory);
+      saveHistory(sessionId, finalHistory, sessionTitle, () => {
+        fetchSessions();
+      });
       showToast('error', networkErrorMsg);
     } finally {
       setIsAsking(false);
     }
   };
 
-  // Nhấn nút Đoạn chat mới
+  // Mở cuộc trò chuyện mới trực tiếp (bỏ modal lưu)
   const handleInitiateNewChat = () => {
-    if (chatHistory.length > 0) {
-      setNewChatTitle('');
-      setNameModalOpen(true);
-    } else {
-      executeNewChat();
-    }
-  };
-
-  // Thực hiện làm mới phiên chat
-  const executeNewChat = (customTitle = null) => {
-    if (customTitle && chatHistory.length > 0) {
-      saveHistory(sessionId, chatHistory, customTitle, () => {
-        fetchSessions();
-      });
-    }
     const newSid = Math.random().toString(36).substring(2, 10);
     setSessionId(newSid);
     localStorage.setItem('chat_session_id', newSid);
     setSelectedSession(null);
+    setActiveSessionName('');
     setChatHistory([]);
     setPdfName('');
     setUploadSuccess(false);
-    setNameModalOpen(false);
     setIsSidebarOpen(false);
-    showToast('info', 'Đã khởi tạo đoạn hội thoại mới.');
+    showToast('info', 'Đã mở cuộc trò chuyện mới.');
   };
 
   // Xoá phiên chat
@@ -274,8 +294,10 @@ function App() {
       <aside className={`app-sidebar ${isSidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
           <div className="brand-section">
-            <h1 className="brand-title">MLOps Chatbot QA</h1>
-            <span className="brand-subtitle">Trợ lý hỏi đáp tài liệu</span>
+            <img src={logoLkv} alt="VKLV Logo" className="brand-logo" />
+            <div className="brand-text">
+              <h1 className="brand-title">VKLV</h1>
+            </div>
           </div>
           <button
             type="button"
@@ -307,8 +329,8 @@ function App() {
                 setIsSidebarOpen(false);
               }}
             >
-              <span className="session-name">Đoạn chat hiện tại</span>
-              <span className="session-status-badge">Hiện hành</span>
+              <span className="session-name">{activeSessionName || 'Đoạn chat mới'}</span>
+              <span className="session-status-dot" title="Hiện hành" aria-label="Hiện hành" />
             </li>
 
             {allSessions.map((session) => {
@@ -372,11 +394,14 @@ function App() {
             >
               Danh sách hội thoại
             </button>
+            <div className="navbar-brand-badge">
+              <img src={logoLkv} alt="VKLV Logo" className="navbar-logo" />
+            </div>
             <div className="navbar-session-info">
               <span className="session-current-title">
                 {selectedSession
                   ? allSessions.find((s) => s.id === selectedSession)?.name || selectedSession
-                  : 'Hội thoại đang hoạt động'}
+                  : activeSessionName || 'Đoạn chat mới'}
               </span>
               {!isCurrentViewingSession && (
                 <button
@@ -391,6 +416,32 @@ function App() {
           </div>
 
           <div className="navbar-right">
+            <button
+              type="button"
+              className="theme-toggle-btn"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
+              aria-label={theme === 'dark' ? 'Chuyển sang giao diện sáng' : 'Chuyển sang giao diện tối'}
+            >
+              {theme === 'dark' ? (
+                <svg className="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5"></circle>
+                  <line x1="12" y1="1" x2="12" y2="3"></line>
+                  <line x1="12" y1="21" x2="12" y2="23"></line>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+                  <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+                  <line x1="1" y1="12" x2="3" y2="12"></line>
+                  <line x1="21" y1="12" x2="23" y2="12"></line>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+                  <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+                </svg>
+              ) : (
+                <svg className="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+                </svg>
+              )}
+            </button>
+
             <input
               type="file"
               accept="application/pdf"
@@ -421,8 +472,11 @@ function App() {
           <div className="chat-stream">
             {chatHistory.length === 0 && (
               <div className="empty-state-card">
+                <div className="empty-state-logo-wrapper">
+                  <img src={logoLkv} alt="VKLV Logo" className="empty-state-logo" />
+                </div>
                 <div className="empty-state-tag">[Hướng dẫn bắt đầu]</div>
-                <h2 className="empty-state-title">Hỏi đáp tài liệu với AI</h2>
+                <h2 className="empty-state-title">Hỏi đáp tài liệu với VKLV</h2>
                 <div className="empty-state-steps">
                   <div className="step-card">
                     <span className="step-number">Bước 1</span>
@@ -447,10 +501,15 @@ function App() {
                   key={index}
                   className={`message-row ${isUser ? 'row-user' : 'row-assistant'}`}
                 >
+                  {!isUser && (
+                    <div className="message-avatar" aria-hidden="true">
+                      <img src={logoLkv} alt="VKLV Avatar" className="assistant-avatar-img" />
+                    </div>
+                  )}
                   <div className="message-bubble">
                     <div className="message-header">
                       <span className={`role-label ${isUser ? 'role-user' : 'role-assistant'}`}>
-                        {isUser ? '[Bạn]' : '[Trợ lý AI]'}
+                        {isUser ? '[Bạn]' : '[VKLV]'}
                       </span>
                     </div>
                     <div className="message-body">{msg.content}</div>
@@ -461,8 +520,11 @@ function App() {
 
             {isAsking && (
               <div className="message-row row-assistant">
+                <div className="message-avatar" aria-hidden="true">
+                  <img src={logoLkv} alt="VKLV Avatar" className="assistant-avatar-img avatar-pulsing" />
+                </div>
                 <div className="message-bubble thinking-bubble">
-                  <span className="role-label role-assistant">[Trợ lý AI]</span>
+                  <span className="role-label role-assistant">[VKLV]</span>
                   <div className="thinking-text">Đang đối soát tài liệu và tổng hợp câu trả lời...</div>
                 </div>
               </div>
@@ -489,10 +551,20 @@ function App() {
                 />
                 <button
                   type="submit"
-                  className="submit-send-btn"
+                  className={`submit-send-btn ${isAsking ? 'btn-loading' : ''}`}
                   disabled={!uploadSuccess || !question.trim() || isAsking}
+                  title={isAsking ? 'Đang phân tích...' : 'Gửi câu hỏi'}
+                  aria-label="Gửi câu hỏi"
                 >
-                  {isAsking ? 'Đang xử lý...' : 'Gửi câu hỏi'}
+                  {isAsking ? (
+                    <svg className="send-icon spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10" strokeDasharray="32" strokeDashoffset="12"></circle>
+                    </svg>
+                  ) : (
+                    <svg className="send-icon" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                  )}
                 </button>
               </form>
             ) : (
@@ -514,52 +586,6 @@ function App() {
           </footer>
         </main>
       </div>
-
-      {/* Modal: Đặt tên đoạn chat */}
-      {nameModalOpen && (
-        <div className="modal-overlay">
-          <div className="modal-card">
-            <h3 className="modal-title">Lưu phiên trò chuyện</h3>
-            <p className="modal-desc">
-              Nhập tên mô tả cho đoạn chat này để dễ dàng tra cứu lại trong lịch sử:
-            </p>
-            <input
-              type="text"
-              className="modal-input"
-              placeholder="Ví dụ: Báo cáo tài chính quý 3"
-              value={newChatTitle}
-              onChange={(e) => setNewChatTitle(e.target.value)}
-              autoFocus
-            />
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="modal-btn secondary-btn"
-                onClick={() => executeNewChat('Chưa đặt tên')}
-              >
-                Bỏ qua đặt tên
-              </button>
-              <button
-                type="button"
-                className="modal-btn primary-btn"
-                onClick={() => {
-                  const finalTitle = newChatTitle.trim() || 'Hội thoại không tên';
-                  executeNewChat(finalTitle);
-                }}
-              >
-                Lưu & Tạo mới
-              </button>
-              <button
-                type="button"
-                className="modal-btn cancel-btn"
-                onClick={() => setNameModalOpen(false)}
-              >
-                Huỷ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Modal: Xác nhận xoá phiên chat */}
       {sessionToDelete && (

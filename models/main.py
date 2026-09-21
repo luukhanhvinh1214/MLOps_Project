@@ -8,10 +8,10 @@ from logging.handlers import RotatingFileHandler
 
 from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from config import llm, LOG_DIR, GEMINI_MODEL, EMBEDDING_MODEL
+from config import llm, LOG_DIR, GEMINI_MODEL, EMBEDDING_MODEL, VECTOR_DB_PATH
 from QA_Chain import QAChain
 from save_history import save_history, load_history, delete_history, CHAT_SESSION_DIR
 
@@ -93,9 +93,22 @@ Instrumentator().instrument(app).expose(app)
 qa_chain = QAChain(llm=llm)
 active_db_loaded = False  # Cờ kiểm tra trạng thái vector DB đã được nạp hay chưa
 
+# Tự động nạp vector DB đã lưu sẵn nếu có trên ổ đĩa
+if os.path.exists(os.path.join(VECTOR_DB_PATH, "index.faiss")):
+    try:
+        qa_chain.load_vector_db()
+        active_db_loaded = True
+        logging.info("Đã tự động nạp cơ sở dữ liệu vector DB hiện có.")
+    except Exception as e:
+        logging.warning(f"Chưa thể tự động nạp vector DB cũ: {e}")
+
 # ==============================================================================
 # Các endpoint API
 # ==============================================================================
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
 
 @app.get("/")
 @app.get("/health")
@@ -132,7 +145,13 @@ async def upload_pdf(file: UploadFile = File(...)):
             return {"message": f"Đã xử lý PDF: {file.filename}"}
         except Exception as e:
             logging.error(f"Lỗi khi xử lý PDF: {e}")
-            return JSONResponse(status_code=500, content={"error": str(e)})
+            err_str = str(e)
+            if "429" in err_str or "quota" in err_str.lower():
+                return JSONResponse(
+                    status_code=429,
+                    content={"error": "Hạn mức Google Gemini API miễn phí (100 lượt/phút) tạm thời bị quá tải. Vui lòng chờ 30 giây rồi thử tải lại tệp."}
+                )
+            return JSONResponse(status_code=500, content={"error": f"Lỗi xử lý tài liệu: {err_str}"})
 
 @app.post("/ask/")
 async def ask_question(question: str = Form(...)):

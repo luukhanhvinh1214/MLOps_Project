@@ -9,6 +9,11 @@
   --bg-user-bubble: #1d4ed8;
   --bg-assistant-bubble: #172338;
   
+  --bg-navbar: rgba(15, 23, 42, 0.85);
+  --bg-footer: #0b1120;
+  --bg-chat-input: rgba(15, 23, 42, 0.85);
+  --bg-avatar: #1e293b;
+  
   --border-dim: #1e293b;
   --border-light: #334155;
   --border-focus: #38bdf8;
@@ -37,6 +42,33 @@
 
   --transition-fast: 0.15s ease;
   --transition-normal: 0.25s ease;
+}
+
+:root[data-theme="light"], :root.theme-light {
+  --bg-app: #f8fafc;
+  --bg-sidebar: #f1f5f9;
+  --bg-card: #ffffff;
+  --bg-card-hover: #e2e8f0;
+  --bg-input: #ffffff;
+  --bg-user-bubble: #2563eb;
+  --bg-assistant-bubble: #ffffff;
+  --bg-navbar: rgba(255, 255, 255, 0.9);
+  --bg-footer: #e2e8f0;
+  --bg-chat-input: rgba(255, 255, 255, 0.9);
+  --bg-avatar: #e2e8f0;
+  
+  --border-dim: #e2e8f0;
+  --border-light: #cbd5e1;
+  --border-focus: #2563eb;
+  
+  --text-main: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-dim: #94a3b8;
+
+  --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.12);
 }
 
 *, *::before, *::after {
