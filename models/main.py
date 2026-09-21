@@ -1,24 +1,30 @@
-from QA_Chain import QAChain
-from config import llm  # Import LLM từ config
+import os
+import sys
+import shutil
+import tempfile
+import logging
+import json
+from logging.handlers import RotatingFileHandler
+
 from fastapi import FastAPI, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import tempfile
-import shutil
-import os
-from save_history import save_history, load_history, delete_history
-import logging
-import sys
-import io
-from logging.handlers import RotatingFileHandler
 from prometheus_fastapi_instrumentator import Instrumentator
 
-# Cấu hình logging
-LOG_DIR = "/app/logs"  # Sử dụng đường dẫn tuyệt đối trong container
-os.makedirs(LOG_DIR, exist_ok=True)
-os.chmod(LOG_DIR, 0o777)
+from config import llm, LOG_DIR, GEMINI_MODEL, EMBEDDING_MODEL
+from QA_Chain import QAChain
+from save_history import save_history, load_history, delete_history, CHAT_SESSION_DIR
 
-# Xóa các handler cũ
+# ==============================================================================
+# Cấu hình logging hệ thống (hỗ trợ cả môi trường Docker và môi trường cục bộ)
+# ==============================================================================
+os.makedirs(LOG_DIR, exist_ok=True)
+try:
+    os.chmod(LOG_DIR, 0o777)
+except Exception:
+    pass
+
+# Xóa các handler cũ để tránh ghi trùng lặp
 logger = logging.getLogger()
 for h in list(logger.handlers):
     logger.removeHandler(h)
@@ -28,42 +34,50 @@ fmt = logging.Formatter('ts="%(asctime)s" level="%(levelname)s" name="%(name)s" 
 
 # 1. fastapi_app.log: log ứng dụng (DEBUG+)
 app_file = os.path.join(LOG_DIR, "fastapi_app.log")
-app_handler = RotatingFileHandler(app_file, maxBytes=10*1024*1024, backupCount=5, mode='a')
+app_handler = RotatingFileHandler(app_file, maxBytes=10*1024*1024, backupCount=5, mode='a', encoding='utf-8')
 app_handler.setLevel(logging.DEBUG)
 app_handler.setFormatter(fmt)
 logger.addHandler(app_handler)
 
 # 2. syslog.log: log hệ thống (INFO+)
 syslog_file = os.path.join(LOG_DIR, "syslog.log")
-syslog_handler = RotatingFileHandler(syslog_file, maxBytes=5*1024*1024, backupCount=3, mode='a')
+syslog_handler = RotatingFileHandler(syslog_file, maxBytes=5*1024*1024, backupCount=3, mode='a', encoding='utf-8')
 syslog_handler.setLevel(logging.INFO)
 syslog_handler.setFormatter(fmt)
 logger.addHandler(syslog_handler)
 
-# 3. stdout.log: chỉ log ra stdout (INFO+)
+# 3. stdout.log: ghi log ra stdout (INFO+)
 stdout_file = os.path.join(LOG_DIR, "stdout.log")
-stdout_handler = RotatingFileHandler(stdout_file, maxBytes=5*1024*1024, backupCount=3, mode='a')
+stdout_handler = RotatingFileHandler(stdout_file, maxBytes=5*1024*1024, backupCount=3, mode='a', encoding='utf-8')
 stdout_handler.setLevel(logging.INFO)
 stdout_handler.setFormatter(fmt)
 stdout_handler.stream = sys.stdout
 logger.addHandler(stdout_handler)
 
-# 4. stderr.log: chỉ log ra stderr (ERROR+)
+# 4. stderr.log: chỉ log lỗi ra stderr (ERROR+)
 stderr_file = os.path.join(LOG_DIR, "stderr.log")
-stderr_handler = RotatingFileHandler(stderr_file, maxBytes=5*1024*1024, backupCount=3, mode='a')
+stderr_handler = RotatingFileHandler(stderr_file, maxBytes=5*1024*1024, backupCount=3, mode='a', encoding='utf-8')
 stderr_handler.setLevel(logging.ERROR)
 stderr_handler.setFormatter(fmt)
 stderr_handler.stream = sys.stderr
 logger.addHandler(stderr_handler)
 
-# Đảm bảo file log có quyền ghi
+# Đảm bảo phân quyền các file log nếu hệ điều hành hỗ trợ
 for f in [app_file, syslog_file, stdout_file, stderr_file]:
     try:
         os.chmod(f, 0o666)
-    except Exception as e:
-        print(f"Error setting log file permissions: {e}")
+    except Exception:
+        pass
 
-app = FastAPI()
+# ==============================================================================
+# Khởi tạo ứng dụng FastAPI & Middleware CORS
+# ==============================================================================
+app = FastAPI(
+    title="MLOps AI QA Chatbot API",
+    description="Hệ thống hỏi đáp tài liệu thông minh sử dụng Gemini và FAISS",
+    version="2.0.0"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -71,17 +85,40 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-Instrumentator().instrument(app).expose(app)  # expose /metrics
+
+# Kích hoạt đo lường Prometheus metrics (/metrics)
+Instrumentator().instrument(app).expose(app)
 
 # Khởi tạo global QAChain
 qa_chain = QAChain(llm=llm)
-active_db_loaded = False  # Cờ để kiểm tra đã upload PDF hay chưa
+active_db_loaded = False  # Cờ kiểm tra trạng thái vector DB đã được nạp hay chưa
+
+# ==============================================================================
+# Các endpoint API
+# ==============================================================================
+
+@app.get("/")
+@app.get("/health")
+def health_check():
+    """
+    Kiểm tra tình trạng hoạt động của dịch vụ (Health check).
+    """
+    return {
+        "status": "healthy",
+        "service": "MLOps Chatbot QA Backend",
+        "gemini_model": GEMINI_MODEL,
+        "embedding_model": EMBEDDING_MODEL,
+        "active_db_loaded": active_db_loaded
+    }
 
 @app.post("/upload_pdf/")
 async def upload_pdf(file: UploadFile = File(...)):
+    """
+    Tải lên tệp PDF, xử lý phân tách và tạo vector DB với FAISS.
+    """
     global active_db_loaded
 
-    # Tạo thư mục tạm và lưu file
+    # Tạo thư mục tạm để xử lý file an toàn
     with tempfile.TemporaryDirectory() as tmpdirname:
         tmp_pdf_path = os.path.join(tmpdirname, file.filename)
 
@@ -91,46 +128,65 @@ async def upload_pdf(file: UploadFile = File(...)):
         try:
             qa_chain.create_chain(tmpdirname)
             active_db_loaded = True
+            logging.info(f"Đã xử lý và nhúng vector thành công PDF: {file.filename}")
             return {"message": f"Đã xử lý PDF: {file.filename}"}
         except Exception as e:
+            logging.error(f"Lỗi khi xử lý PDF: {e}")
             return JSONResponse(status_code=500, content={"error": str(e)})
-
 
 @app.post("/ask/")
 async def ask_question(question: str = Form(...)):
+    """
+    Nhận câu hỏi của người dùng và truy vấn nội dung từ vector database.
+    """
     if not active_db_loaded:
-        return JSONResponse(status_code=400, content={"error": "Chưa upload file PDF nào."})
+        return JSONResponse(status_code=400, content={"error": "Chưa upload file PDF nào hoặc cơ sở dữ liệu chưa sẵn sàng."})
 
     try:
         answer = qa_chain.query(question)
+        logging.info(f"Truy vấn thành công cho câu hỏi: '{question}'")
         return {"question": question, "answer": answer}
     except Exception as e:
+        logging.error(f"Lỗi khi trả lời câu hỏi '{question}': {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.post("/save_history/")
 async def save_chat_history(request: Request):
+    """
+    Lưu lại toàn bộ lịch sử đoạn chat của phiên.
+    """
     data = await request.json()
     session_id = data.get("session_id")
     history = data.get("history", [])
     session_name = data.get("session_name")
+
     if not session_id:
         return JSONResponse(status_code=400, content={"error": "Thiếu session_id"})
+
     try:
         save_history(session_id, history, session_name)
         return {"message": "Lưu lịch sử thành công"}
     except Exception as e:
+        logging.error(f"Lỗi khi lưu lịch sử: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/history/{session_id}")
 async def get_chat_history(session_id: str):
+    """
+    Lấy chi tiết lịch sử tin nhắn của một session cụ thể.
+    """
     try:
         history = load_history(session_id)
         return {"session_id": session_id, "history": history}
     except Exception as e:
+        logging.error(f"Lỗi khi tải lịch sử session {session_id}: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.delete("/history/{session_id}")
 async def delete_chat_history(session_id: str):
+    """
+    Xoá lịch sử của một phiên hội thoại.
+    """
     try:
         deleted = delete_history(session_id)
         if deleted:
@@ -138,30 +194,37 @@ async def delete_chat_history(session_id: str):
         else:
             return JSONResponse(status_code=404, content={"error": "Không tìm thấy session_id"})
     except Exception as e:
+        logging.error(f"Lỗi khi xoá session {session_id}: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 @app.get("/list_sessions/")
 def list_sessions():
+    """
+    Lấy danh sách tất cả các phiên trò chuyện đã lưu trữ.
+    """
     try:
-        session_dir = os.path.join("./data", "chat_sessions")
-        files = os.listdir(session_dir)
-        # Sắp xếp theo thời gian sửa đổi, mới nhất lên đầu
-        files = sorted(files, key=lambda f: os.path.getmtime(os.path.join(session_dir, f)), reverse=True)
+        os.makedirs(CHAT_SESSION_DIR, exist_ok=True)
+        files = os.listdir(CHAT_SESSION_DIR)
+        # Sắp xếp theo thời gian sửa đổi gần nhất lên đầu
+        files = sorted(
+            [f for f in files if f.endswith('.json')],
+            key=lambda f: os.path.getmtime(os.path.join(CHAT_SESSION_DIR, f)),
+            reverse=True
+        )
+
         sessions = []
         for f in files:
-            if f.endswith('.json'):
-                sid = f.replace('.json','')
-                # Đọc tên đoạn chat nếu có
-                try:
-                    with open(os.path.join(session_dir, f), encoding='utf-8') as file:
-                        data = file.read()
-                        import json
-                        obj = json.loads(data)
-                        name = obj.get('session_name', sid)
-                except Exception:
-                    name = sid
-                sessions.append({'id': sid, 'name': name})
+            sid = f.replace('.json', '')
+            # Đọc tên phiên chat nếu có
+            try:
+                with open(os.path.join(CHAT_SESSION_DIR, f), encoding='utf-8') as file:
+                    obj = json.load(file)
+                    name = obj.get('session_name', sid)
+            except Exception:
+                name = sid
+            sessions.append({'id': sid, 'name': name})
+
         return {"sessions": sessions}
     except Exception as e:
+        logging.error(f"Lỗi khi liệt kê danh sách session: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})
-
