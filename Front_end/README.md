@@ -8,9 +8,9 @@ uvicorn main:app --reload --port 8081
 ```
 
 
-Lưu ý phải cd tới thư mục front end
+Lưu ý phải cd tới thư mục Front_end
 ```bash
-cd ./front end
+cd ./Front_end
 npm install
 npm run dev
 ```

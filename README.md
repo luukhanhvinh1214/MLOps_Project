@@ -35,7 +35,7 @@ Truy cập docs: http://localhost:8081/docs
 
 ### 2. Chạy Frontend (React)
 ```bash
-cd "front end"
+cd Front_end
 npm install
 npm run dev
 ```
@@ -64,7 +64,7 @@ docker compose up --build
    ```
 3. Cài các package Node cho frontend:
    ```bash
-   cd "front end"
+   cd Front_end
    npm install
    ```
 4. Đọc thêm hướng dẫn chi tiết trong `models/README.md` và `Front_end/README.md`.
