@@ -1,4 +1,64 @@
-mlops
-mlops_env
-Monitoring/prometheus/prometheus
+# ==========================================
+# Cấu hình bảo mật: Biến môi trường & Bí mật
+# ==========================================
+.env
+.env.*
+!.env.example
+!*.env.example
+*.key
+*.pem
+*.crt
+*.pfx
+*.cert
+id_rsa*
+credentials.json
+service_account*.json
+
+# ==========================================
+# Nhật ký hệ thống & Logs
+# ==========================================
+*.log
+logs/
+models/logs/
+
+# ==========================================
+# Dữ liệu cục bộ & Vector Database
+# ==========================================
 models/data/*
+!models/data/.gitkeep
+data/
+*.faiss
+*.pkl
+
+# ==========================================
+# Python, Cache & Môi trường ảo
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+venv/
+.venv/
+env/
+mlops/
+mlops_env/
+
+# ==========================================
+# Frontend, Node & Bản dựng
+# ==========================================
+node_modules/
+Front_end/dist/
+Front_end/.env
+Front_end/.env.*
+!Front_end/.env.example
+
+# ==========================================
+# Giám sát & Khác
+# ==========================================
+Monitoring/prometheus/prometheus
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
