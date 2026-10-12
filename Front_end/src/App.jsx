@@ -192,6 +192,7 @@ function App() {
     try {
       const formData = new FormData();
       formData.append('question', cleanQuestion);
+      formData.append('history', JSON.stringify(chatHistory.slice(-6)));
 
       const res = await fetch(`${API_BASE}/ask/`, {
         method: 'POST',

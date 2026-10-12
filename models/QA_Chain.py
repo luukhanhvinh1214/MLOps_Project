@@ -86,11 +86,31 @@ Nếu không biết hoặc thông tin không có trong tài liệu, hãy trả l
         print("Load vector DB thành công")
         return self._build_lcel_chain()
 
-    def query(self, question: str) -> str:
+    def _condense_question(self, question: str, history: list) -> str:
         """
-        Truy vấn câu hỏi dựa trên tài liệu đã được nạp.
+        Viết lại câu hỏi nối tiếp thành câu hỏi độc lập dựa trên lịch sử hội thoại,
+        để bước truy xuất hiểu được các câu như "Còn gói Max thì sao?".
+        """
+        turns = "\n".join(f"{m.get('role')}: {m.get('content')}" for m in history[-6:])
+        prompt = PromptTemplate.from_template("""Dựa vào lịch sử hội thoại, viết lại câu hỏi cuối thành một câu hỏi độc lập, hiểu được mà không cần lịch sử, giữ nguyên ngôn ngữ của người dùng.
+Câu hỏi cuối có thể tham chiếu ngữ cảnh trước đó một cách trực tiếp hoặc ngầm định. Nếu không liên quan đến lịch sử thì giữ nguyên.
+Chỉ trả về câu hỏi, không trả lời.
+
+[Lịch sử hội thoại]:
+{history}
+
+[Câu hỏi cuối]: {question}
+
+[Câu hỏi độc lập]:""")
+        return (prompt | self.llm | StrOutputParser()).invoke({"history": turns, "question": question}).strip()
+
+    def query(self, question: str, history: list = None) -> str:
+        """
+        Truy vấn câu hỏi dựa trên tài liệu đã được nạp, có xét lịch sử hội thoại của phiên.
         """
         if self.chain is None:
             raise ValueError("Chain chưa được tạo. Vui lòng gọi create_chain() hoặc tạo/load DB trước.")
+        if history:
+            question = self._condense_question(question, history)
         answer = self.chain.invoke(question)
         return str(answer).replace("<|file_separator|>", "").strip()

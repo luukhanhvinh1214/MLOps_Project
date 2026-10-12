@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from config import llm, LOG_DIR, GEMINI_MODEL, EMBEDDING_MODEL, VECTOR_DB_PATH
+from config import llm, LOG_DIR, LLM_MODEL, EMBEDDING_MODEL, VECTOR_DB_PATH
 from QA_Chain import QAChain
 from save_history import save_history, load_history, delete_history, CHAT_SESSION_DIR
 
@@ -74,7 +74,7 @@ for f in [app_file, syslog_file, stdout_file, stderr_file]:
 # ==============================================================================
 app = FastAPI(
     title="MLOps AI QA Chatbot API",
-    description="Hệ thống hỏi đáp tài liệu thông minh sử dụng Gemini và FAISS",
+    description="Hệ thống hỏi đáp tài liệu thông minh sử dụng OpenAI và FAISS",
     version="2.0.0"
 )
 
@@ -119,7 +119,7 @@ def health_check():
     return {
         "status": "healthy",
         "service": "MLOps Chatbot QA Backend",
-        "gemini_model": GEMINI_MODEL,
+        "llm_model": LLM_MODEL,
         "embedding_model": EMBEDDING_MODEL,
         "active_db_loaded": active_db_loaded
     }
@@ -149,20 +149,27 @@ async def upload_pdf(file: UploadFile = File(...)):
             if "429" in err_str or "quota" in err_str.lower():
                 return JSONResponse(
                     status_code=429,
-                    content={"error": "Hạn mức Google Gemini API miễn phí (100 lượt/phút) tạm thời bị quá tải. Vui lòng chờ 30 giây rồi thử tải lại tệp."}
+                    content={"error": "Hạn mức OpenAI API tạm thời bị quá tải. Vui lòng chờ 30 giây rồi thử tải lại tệp."}
                 )
             return JSONResponse(status_code=500, content={"error": f"Lỗi xử lý tài liệu: {err_str}"})
 
 @app.post("/ask/")
-async def ask_question(question: str = Form(...)):
+async def ask_question(question: str = Form(...), history: str = Form("[]")):
     """
-    Nhận câu hỏi của người dùng và truy vấn nội dung từ vector database.
+    Nhận câu hỏi của người dùng (kèm lịch sử hội thoại dạng JSON) và truy vấn nội dung từ vector database.
     """
     if not active_db_loaded:
         return JSONResponse(status_code=400, content={"error": "Chưa upload file PDF nào hoặc cơ sở dữ liệu chưa sẵn sàng."})
 
     try:
-        answer = qa_chain.query(question)
+        history = json.loads(history)
+        if not isinstance(history, list):
+            raise ValueError
+    except ValueError:
+        return JSONResponse(status_code=400, content={"error": "history phải là JSON array."})
+
+    try:
+        answer = qa_chain.query(question, history)
         logging.info(f"Truy vấn thành công cho câu hỏi: '{question}'")
         return {"question": question, "answer": answer}
     except Exception as e:

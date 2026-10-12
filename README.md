@@ -2,7 +2,7 @@
 
 ## Giới thiệu
 
-Dự án này xây dựng một hệ thống hỏi đáp tài liệu (QA) sử dụng Large Language Model (Gemini 3.6 Flash) và Vector Database (FAISS), cung cấp API FastAPI và giao diện React (Vite). Hệ thống hỗ trợ tải lên tài liệu PDF, tạo vector database theo kiến trúc LCEL, hỏi đáp thông minh, lưu lịch sử hội thoại, giám sát metrics/log qua Prometheus, Grafana, Loki và tự động hóa triển khai bằng Jenkins và Docker Compose.
+Dự án này xây dựng một hệ thống hỏi đáp tài liệu (QA) sử dụng Large Language Model (OpenAI GPT-4o mini, embedding text-embedding-3-small) và Vector Database (FAISS), cung cấp API FastAPI và giao diện React (Vite). Hệ thống hỗ trợ tải lên tài liệu PDF, tạo vector database theo kiến trúc LCEL, hỏi đáp thông minh, lưu lịch sử hội thoại, giám sát metrics/log qua Prometheus, Grafana, Loki và tự động hóa triển khai bằng Jenkins và Docker Compose.
 
 ## Cấu trúc thư mục
 
@@ -37,7 +37,7 @@ Trước khi chạy hệ thống, hãy sao chép tệp mẫu và cấu hình API
 
 ```bash
 cp .env.example .env
-# Mở tệp .env và điền GOOGLE_API_KEY của bạn
+# Mở tệp .env và điền OPENAI_API_KEY của bạn
 ```
 
 ### 2. Chạy Backend (FastAPI)
@@ -73,7 +73,7 @@ docker compose up --build
 ## Các thành phần chính
 
 - **FastAPI**: Xây dựng API hỏi đáp, upload PDF, lưu lịch sử và health check.
-- **LangChain, Google Gemini, FAISS**: Xử lý chuỗi RAG (LCEL), embedding vector và truy vấn ngữ cảnh.
+- **LangChain, OpenAI, FAISS**: Xử lý chuỗi RAG (LCEL), embedding vector, truy vấn ngữ cảnh và viết lại câu hỏi nối tiếp theo lịch sử hội thoại.
 - **React (Vite)**: Giao diện người dùng hiện đại, tối ưu cho cả Web và Mobile.
 - **Prometheus, Grafana, Loki**: Giám sát log, metrics hệ thống.
 - **Jenkins**: Tự động hóa CI/CD pipeline.

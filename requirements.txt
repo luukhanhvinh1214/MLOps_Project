@@ -5,16 +5,9 @@ uvicorn==0.34.3
 # ---- LangChain & LLM ----
 langchain==0.3.25
 langchain-community==0.3.24
-langchain-google-genai==2.1.5
-google-ai-generativelanguage==0.6.18
+langchain-openai==0.3.32
 faiss-cpu==1.11.0           # Vector DB
 pypdf==5.6.0                # Đọc PDF
-
-# ---- Phụ trợ bắt buộc của LangChain / Google ----
-google-api-core==2.24.2
-google-auth==2.40.2
-googleapis-common-protos==1.70.0
-protobuf==6.31.1
 python-multipart==0.0.20    # FastAPI upload file
 
 # ---- Tiện ích (retry, token hóa, môi trường) ----

@@ -22,12 +22,12 @@ class VectorDBCreator:
     def _build_faiss_with_retry(self, chunks):
         """
         Tạo và nhúng vectorstore FAISS theo từng đợt (batch) với cơ chế tự động chờ và thử lại
-        khi chạm giới hạn Rate Limit (100 RPM) của gói miễn phí Google Gemini API.
+        khi chạm giới hạn Rate Limit của OpenAI API.
         """
         if not chunks:
             raise ValueError("Không thể trích xuất nội dung văn bản từ tài liệu (tệp rỗng hoặc dạng ảnh scan chưa có OCR).")
 
-        BATCH_SIZE = 35  # Giới hạn 35 chunks/batch để luôn an toàn dưới hạn mức 100 requests/phút của Gemini Free Tier
+        BATCH_SIZE = 35  # Giới hạn 35 chunks/batch để giãn cách request, tránh chạm rate limit
         db = None
         total_batches = (len(chunks) + BATCH_SIZE - 1) // BATCH_SIZE
 
@@ -51,7 +51,7 @@ class VectorDBCreator:
                     if ("429" in err_str or "quota" in err_str.lower()) and attempt < max_retries - 1:
                         retry_match = re.search(r"retry in ([\d\.]+)s", err_str)
                         wait_time = float(retry_match.group(1)) + 2.0 if retry_match else 25.0
-                        logging.warning(f"[Đợt {batch_num}/{total_batches}] Chạm hạn mức Gemini Free Tier (429). Đang tạm nghỉ {wait_time:.1f}s trước khi thử lại...")
+                        logging.warning(f"[Đợt {batch_num}/{total_batches}] Chạm rate limit (429). Đang tạm nghỉ {wait_time:.1f}s trước khi thử lại...")
                         time.sleep(wait_time)
                     else:
                         logging.error(f"Lỗi khi nhúng đợt {batch_num}/{total_batches}: {e}")

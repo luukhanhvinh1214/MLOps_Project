@@ -21,12 +21,10 @@ else:
 # ==============================================================================
 # Đọc các thông số cấu hình từ biến môi trường
 # ==============================================================================
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-if GOOGLE_API_KEY:
-    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 BACKEND_HOST = os.getenv("BACKEND_HOST", "0.0.0.0")
 BACKEND_PORT = int(os.getenv("BACKEND_PORT", "8085"))
@@ -35,22 +33,22 @@ VECTOR_DB_PATH = os.getenv("VECTOR_DB_PATH", "./data/vector_db_path")
 CHAT_SESSION_DIR = os.getenv("CHAT_SESSION_DIR", "./data/chat_sessions")
 
 # ==============================================================================
-# Khởi tạo mô hình LLM và Embedding của Google
+# Khởi tạo mô hình LLM và Embedding của OpenAI
 # ==============================================================================
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 
-# Mô hình LLM (Gemini 3.6 Flash)
-llm = ChatGoogleGenerativeAI(
-    model=GEMINI_MODEL,
-    google_api_key=GOOGLE_API_KEY if GOOGLE_API_KEY else None,
+# Mô hình LLM
+llm = ChatOpenAI(
+    model=LLM_MODEL,
+    api_key=OPENAI_API_KEY or None,
     temperature=0.2,
     max_retries=3
 )
 
 # Mô hình tạo vector nhúng (Embedding)
-embeddings = GoogleGenerativeAIEmbeddings(
+embeddings = OpenAIEmbeddings(
     model=EMBEDDING_MODEL,
-    google_api_key=GOOGLE_API_KEY if GOOGLE_API_KEY else None
+    api_key=OPENAI_API_KEY or None
 )
 
 # ==============================================================================
